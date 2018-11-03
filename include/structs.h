@@ -14,6 +14,8 @@ struct attack_args{
 
 typedef enum cmd_t{
     NORMAL,
+    GET,
+    SEND,
     UNKNOWN,
     DISCONNECT
 }cmd_t;

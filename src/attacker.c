@@ -6,6 +6,9 @@
 #include <arpa/inet.h>
 #include "structs.h"
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
 
 
 ssize_t my_read(int fd, void *buf, size_t count){
@@ -155,6 +158,61 @@ void ReceiveData(int fd){
 }
 
 
+char* Get_Dir(char* file){
+    int count = 0,pos = 0;
+    while(file[pos] != '\0'){
+        if(file[pos] == '/')
+            count++;
+        pos++;
+    }
+    if(!count){
+        char* dir = calloc(2,sizeof(char));
+        strncpy(dir,".",1);
+        return dir;
+    }
+    else{
+        pos = 0;
+        int len = 0, i = 0;
+        while(i < count){
+            len++;
+            if(file[pos++] == '/')
+                i++;
+        }
+        printf("len is: %d\n",len);
+        char* dir = calloc(len,sizeof(char));
+        strncpy(dir,file,len-1);
+        return dir;
+    }
+
+}
+
+char* Get_File_Name(char* file){
+    char* tok = NULL;
+    size_t count = 0, pos = 0;
+    while(file[pos] != '\0'){
+        if(file[pos] == '/')
+            count++;
+        pos++;
+    }
+    // File has no slashes
+    if(!count)
+        return file;
+    else{
+        pos = 0;
+        tok = strdup(file);
+        while(pos < count){
+            tok = strstr(tok,"/");
+            tok++;
+            pos++;
+        }
+        char* name = strtok(tok,"\n");
+        return name;
+    }
+}
+
+
+
+
 void SendCommands(int fd){
     while(1){
         char cmd[256] = {0};
@@ -166,37 +224,96 @@ void SendCommands(int fd){
             perror("fgets");
             exit(1);
         }
+        char* tok = strtok(cmd," "), *file = NULL;
+        if(!strcmp(tok,"get")  || !strcmp(tok,"send"))
+            file = strtok(NULL," \n");
         int code = 0;
         my_read(fd,&code,sizeof(int));
         printf("Error code is: %d\n",code);
         char resp[64] = {0};
         printf("Target:\n");
         printf("*======================*\n");
-        if(code == 1){
+        if(code == 1){ // Normal command
             printf("<------------ Output ------------>\n");
             while(1){
                 my_read(fd,resp,63);
                 printf("%s",resp);
-                if(strstr(resp,"\r"))
+                if(strstr(resp,"\r")){
                     break;
+                }
                 bzero(resp,64);
             }
             printf("<------------  END  ------------->\n");
         }
-        else if(code == -1){
+        else if(code == -1){ // NORMAL COMMAND FAILURE
             printf("Command failed to execute. Popen failed.\n");
             printf("*======================*\n");
             continue;
         }
-        else if(code == -2){
+        else if(code == -2){// NORMAL COMMAND INVALID
             printf("Invalid command.\n");
             printf("*======================*\n");
             continue;
         }
-        else if(code == -3){
+        else if(code == -3){// ERROR
             printf("Something went really bad, server closed connection\n");
             printf("*======================*\n");
             continue;
+        }
+        else if(code == 404){ // GET NOT FOUND
+            printf("File not found!\n");
+            printf("*======================*\n");
+        }
+        else if(code == 2){ // GET
+            printf("File found!\n");
+            printf("Receiving file...\n");
+            if(mkdir("saved_files",0777) < 0){
+                perror("mkdir");
+                exit(1);
+            }
+            char* full_name = calloc(1,strlen(file) + 13);
+            sprintf(full_name,"saved_files/%s",file);
+            int file_d = my_open(full_name,O_CREAT|O_WRONLY|S_IRWXU);
+            int r = 0,count = 0, len = 0;
+            char msg[256] = {0};
+            while(1){
+                my_read(fd,&len,sizeof(int));
+                r = my_read(fd,msg,len);
+                my_write(file_d,msg,len);
+                if(len < 255)
+                    break;
+                bzero(msg,256);
+                count += r;
+            }
+            printf("got: %d bytes\n",count);
+            printf("File saved.\n");
+        }
+        else if(code == 3){ // SEND
+            printf("Sending file...\n");
+            char msg[256] = {0};
+            /*    char* name = Get_Dir(file);
+                DIR* dir = opendir(name);
+                printf("name is: %s\n",name);
+                if(!dir){
+                    perror("opendir");
+                    exit(1);
+                }
+                struct dirent* pdir = readdir(dir);
+                if(!pdir){
+                    perror("readdir");
+                    exit(1);
+                }*/
+            //char* filename = Get_File_Name(file);
+            int r = 0,file_d = my_open(file,O_RDONLY);
+            while(1){
+                r = my_read(file_d,msg,255);
+                my_write(fd,&r,sizeof(int));
+                my_write(fd,msg,r);
+                bzero(msg,256);
+                if(r < 255)
+                    break;
+            }
+            printf("File sent successfuly!\n");
         }
         printf("*======================*\n");
     }
