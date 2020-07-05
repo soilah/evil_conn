@@ -243,6 +243,7 @@ void Get(char* file,int fd){
         int file_d = my_open(file,0666);
         int w = 0, count = 0,r = 0;
         while(1){
+	    printf("size of int: %d\n",sizeof(int));
             r = my_read(file_d,buf,255);
             w = my_write(fd,&r,sizeof(int));
             w = my_write(fd,buf,r);
